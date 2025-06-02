@@ -1,0 +1,52 @@
+name: Promote to Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (qa, uat, prod)"
+        required: true
+        type: choice
+        options:
+          - qa
+          - uat
+          - prod
+      image_tag:
+        description: "Docker image tag to deploy (e.g., v1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      # Requires protection rule for manual approval (set in GitHub UI)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ secrets.AZURE_RG }}
+          cluster-name: ${{ secrets.AKS_CLUSTER }}
+          use-kubelogin: false
+
+      - name: Set environment namespace
+        run: echo "ENV_NAMESPACE=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+
+      - name: Deploy to AKS
+        run: |
+          kubectl set image deployment/nodejs-app \
+            nodejs-app=myregistry.azurecr.io/nodejs-app:${{ github.event.inputs.image_tag }} \
+            -n $ENV_NAMESPACE
+
+          kubectl rollout status deployment/nodejs-app -n $ENV_NAMESPACE
